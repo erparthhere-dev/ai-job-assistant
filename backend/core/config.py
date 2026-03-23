@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     rapidapi_key: str = ""
     rapidapi_host: str = "jsearch.p.rapidapi.com"
 
+    # SerpApi
+    serpapi_key: str = ""
+
     # App
     app_env: str = "development"
     app_port: int = 8000

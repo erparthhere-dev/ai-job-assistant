@@ -6,6 +6,7 @@ from services.rapidapi_service import fetch_jobs
 from models.schemas import JobMatch
 from agents.state import JobSearchState
 from core.config import get_settings
+from services.serpapi_service import fetch_jobs_serpapi
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -14,15 +15,48 @@ settings = get_settings()
 # ── Node 1: Fetch Jobs ────────────────────────────────────────────────────────
 
 async def node_fetch_jobs(state: JobSearchState) -> JobSearchState:
-    """Fetch job postings from RapidAPI."""
+    """Fetch job postings from multiple sources and combine them."""
     logger.info("Node: fetch_jobs")
     try:
-        jobs = await fetch_jobs(
-            query=state["query"],
-            location=state["location"],
-            remote_only=state["remote_only"],
+        query      = state["query"]
+        location   = state["location"]
+        remote_only = state["remote_only"]
+
+        # ── Source 1: RapidAPI ─────────────────────────────────────────────
+        logger.info("Fetching from RapidAPI...")
+        rapidapi_jobs = await fetch_jobs(
+            query=query,
+            location=location,
+            remote_only=remote_only,
         )
-        state["job_postings"] = jobs
+
+        # ── Source 2: SerpApi ──────────────────────────────────────────────
+        logger.info("Fetching from SerpApi...")
+        serpapi_jobs = await fetch_jobs_serpapi(
+            query=query,
+            location=location,
+            num_results=10,
+        )
+
+        # ── Combine + deduplicate by title+company ─────────────────────────
+        all_jobs = rapidapi_jobs + serpapi_jobs
+        seen = set()
+        unique_jobs = []
+        for job in all_jobs:
+            key = f"{job.title.lower()}_{job.company.lower()}"
+            if key not in seen:
+                seen.add(key)
+                unique_jobs.append(job)
+
+        logger.info(
+            f"Total jobs: {len(unique_jobs)} "
+            f"(RapidAPI={len(rapidapi_jobs)}, "
+            f"SerpApi={len(serpapi_jobs)}, "
+            f"duplicates removed={len(all_jobs) - len(unique_jobs)})"
+        )
+
+        state["job_postings"] = unique_jobs
+
     except Exception as e:
         logger.error(f"fetch_jobs failed: {e}")
         state["error"] = str(e)
