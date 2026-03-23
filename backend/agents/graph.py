@@ -18,7 +18,7 @@ def build_job_search_graph():
 
     graph = StateGraph(JobSearchState)
 
-    # ── Add nodes ─────────────────────────────────────────────────────────────
+    # ── Add nodes 
     graph.add_node("fetch_jobs", node_fetch_jobs)
     graph.add_node("embed_resume", node_embed_resume)
     graph.add_node("embed_jobs", node_embed_jobs)
@@ -26,7 +26,7 @@ def build_job_search_graph():
     graph.add_node("analyze_matches", node_analyze_matches)
     graph.add_node("generate_cover_letters", node_generate_cover_letters)
 
-    # ── Define edges (flow) ───────────────────────────────────────────────────
+    # ── Define edges (flow) 
     graph.set_entry_point("fetch_jobs")
     graph.add_edge("fetch_jobs", "embed_resume")
     graph.add_edge("embed_resume", "embed_jobs")

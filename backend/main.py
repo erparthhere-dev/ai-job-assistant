@@ -13,7 +13,7 @@ from agents.graph import job_search_graph
 from models.schemas import JobSearchRequest, JobSearchResponse
 from services.resume_service import get_resume
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# ── Logging 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── App lifecycle ─────────────────────────────────────────────────────────────
+# ── App lifecycle 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 AI Job Assistant API starting up...")
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     logger.info("👋 AI Job Assistant API shutting down...")
 
 
-# ── App init ──────────────────────────────────────────────────────────────────
+# ── App init 
 settings = get_settings()
 
 app = FastAPI(
@@ -48,13 +48,13 @@ app.add_middleware(
 )
 
 
-# ── Health check ──────────────────────────────────────────────────────────────
+# ── Health check 
 @app.get("/health", tags=["System"])
 async def health_check():
     return {"status": "ok", "version": "1.0.0"}
 
 
-# ── Resume endpoints ──────────────────────────────────────────────────────────
+# ── Resume endpoints 
 
 @app.post(
     "/api/resume/upload",
@@ -98,7 +98,7 @@ async def get_resume_by_id(resume_id: str):
         raise HTTPException(status_code=404, detail=f"Resume '{resume_id}' not found.")
     return resume
 
-# ── Job Search endpoint ───────────────────────────────────────────────────────
+# ── Job Search endpoint 
 
 @app.post(
     "/api/jobs/search",
@@ -147,7 +147,7 @@ async def search_jobs(request: JobSearchRequest):
         matches=final_state["matches"],
     )
 
-# ── Global exception handler ──────────────────────────────────────────────────
+# ── Global exception handler 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
@@ -157,7 +157,7 @@ async def global_exception_handler(request, exc):
     )
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=settings.app_port, reload=True)
