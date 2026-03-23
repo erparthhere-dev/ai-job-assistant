@@ -34,6 +34,7 @@ export interface JobPosting {
   salary_min: number | null;
   salary_max: number | null;
   remote: boolean;
+  source: string;
 }
 
 export interface JobMatch {

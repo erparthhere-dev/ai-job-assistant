@@ -110,13 +110,54 @@ async def node_embed_jobs(state: JobSearchState) -> JobSearchState:
 # ── Node 4: Match Jobs ────────────────────────────────────────────────────────
 
 def calculate_skill_overlap(resume_skills: list[str], job_description: str) -> float:
-    """Calculate what fraction of resume skills appear in the job description."""
+    """
+    Calculate skill overlap using fuzzy/partial matching.
+    Handles cases where resume and JD use different words for same skill.
+    """
     if not resume_skills:
         return 0.0
 
     job_desc_lower = job_description.lower()
-    matched = sum(1 for skill in resume_skills if skill.lower() in job_desc_lower)
-    return matched / len(resume_skills)
+    matched = 0
+
+    # Skill aliases — different words meaning the same thing
+    skill_aliases = {
+        "vulnerability assessment": ["vulnerability", "vuln assessment", "vulnerability scanning", "vulnerability testing"],
+        "linux environment":        ["linux", "unix", "kali", "ubuntu"],
+        "burp suite":               ["burp", "web application testing", "web testing"],
+        "network security":         ["network", "networking", "network protection"],
+        "penetration testing":      ["penetration", "pentest", "pen test", "ethical hacking"],
+        "siem":                     ["siem", "splunk", "qradar", "security information"],
+        "incident response":        ["incident", "ir ", "security incident"],
+        "firewall management":      ["firewall", "firewall configuration", "network firewall"],
+        "python":                   ["python", "python3", "python scripting"],
+        "problem solving":          ["problem solving", "analytical", "problem-solving"],
+        "information security":     ["information security", "infosec", "info security"],
+        "cybersecurity":            ["cybersecurity", "cyber security", "information security"],
+        "nmap":                     ["nmap", "network scanning", "port scanning"],
+        "sqlmap":                   ["sqlmap", "sql injection", "database security"],
+    }
+
+    for skill in resume_skills:
+        skill_lower = skill.lower()
+
+        # Check 1: exact match
+        if skill_lower in job_desc_lower:
+            matched += 1
+            continue
+
+        # Check 2: partial match (skill is substring of job desc)
+        if any(word in job_desc_lower for word in skill_lower.split()):
+            matched += 0.5   # partial credit
+            continue
+
+        # Check 3: alias match
+        aliases = skill_aliases.get(skill_lower, [])
+        if any(alias in job_desc_lower for alias in aliases):
+            matched += 0.8   # alias credit
+            continue
+
+    return min(matched / len(resume_skills), 1.0)  # cap at 1.0
 
 
 def calculate_seniority_score(experience_years: float, job_description: str) -> float:
@@ -322,7 +363,6 @@ COVER_LETTER_PROMPT = """
 Write a professional cover letter for this candidate applying to this job.
 
 Candidate:
-- Name: Job Applicant
 - Skills: {skills}
 - Experience: {experience_years} years
 - Previous titles: {job_titles}
@@ -337,7 +377,9 @@ Instructions:
 - Keep it to 3 paragraphs
 - Be specific about why the candidate fits this role
 - Professional but personable tone
-- Do NOT use placeholders like [Your Name]
+- Start directly with "Dear Hiring Manager," — no address block, no date, no placeholders
+- End with "Sincerely," followed by a blank line — no name placeholder
+- Do NOT include [Your Name], [Your Address], [Date] or any placeholders
 """
 
 

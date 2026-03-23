@@ -50,6 +50,7 @@ async def fetch_jobs(
                 salary_min=item.get("job_min_salary"),
                 salary_max=item.get("job_max_salary"),
                 remote=item.get("job_is_remote", False),
+                source=item.get("job_publisher", "Unknown"),
             )
             jobs.append(job)
         except Exception as e:

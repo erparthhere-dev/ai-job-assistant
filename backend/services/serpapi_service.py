@@ -48,12 +48,17 @@ async def fetch_jobs_serpapi(
                     company=        item.get("company_name", ""),
                     location=       item.get("location", ""),
                     description=clean_job_description(item.get("description", "")),
-                    apply_link=     item.get("related_links", [{}])[0].get("link") if item.get("related_links") else None,
+                    apply_link=     (
+                                    item.get("apply_options", [{}])[0].get("link")
+                                    or item.get("job_apply_link")
+                                    or (f"https://www.google.com/search?q={item.get('title', '').replace(' ', '+')}+{item.get('company_name', '').replace(' ', '+')}+apply")
+                                ),
                     posted_at=      item.get("detected_extensions", {}).get("posted_at"),
                     employment_type=item.get("detected_extensions", {}).get("schedule_type"),
                     salary_min=     salary_min,
                     salary_max=     salary_max,
                     remote=         "remote" in item.get("location", "").lower(),
+                    source=         item.get("via", "Google Jobs").replace("via ", ""),
                 )
                 jobs.append(job)
             except Exception as e:

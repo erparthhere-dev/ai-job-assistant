@@ -31,6 +31,7 @@ class JobPosting(BaseModel):
     salary_min: Optional[float] = None
     salary_max: Optional[float] = None
     remote: bool = False
+    source: str = "unknown"
 
 
 class JobMatch(BaseModel):
