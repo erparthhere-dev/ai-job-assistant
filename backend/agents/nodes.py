@@ -75,26 +75,101 @@ async def node_embed_jobs(state: JobSearchState) -> JobSearchState:
 
 # ── Node 4: Match Jobs ────────────────────────────────────────────────────────
 
+def calculate_skill_overlap(resume_skills: list[str], job_description: str) -> float:
+    """Calculate what fraction of resume skills appear in the job description."""
+    if not resume_skills:
+        return 0.0
+
+    job_desc_lower = job_description.lower()
+    matched = sum(1 for skill in resume_skills if skill.lower() in job_desc_lower)
+    return matched / len(resume_skills)
+
+
+def calculate_seniority_score(experience_years: float, job_description: str) -> float:
+    """Score how well candidate's experience level matches job requirements."""
+    job_desc_lower = job_description.lower()
+
+    # Detect seniority signals in job description
+    senior_signals   = ["senior", "lead", "principal", "5+ years", "7+ years", "10+ years"]
+    mid_signals      = ["mid", "3+ years", "4+ years", "3-5 years", "2-4 years"]
+    junior_signals   = ["junior", "entry", "fresher", "0-2 years", "1-2 years", "graduate"]
+
+    is_senior = any(s in job_desc_lower for s in senior_signals)
+    is_mid    = any(s in job_desc_lower for s in mid_signals)
+    is_junior = any(s in job_desc_lower for s in junior_signals)
+
+    # Score based on candidate experience vs job level
+    if experience_years <= 2:        # junior candidate
+        if is_junior: return 1.0
+        if is_mid:    return 0.5
+        if is_senior: return 0.2
+        return 0.7   # no signal found — neutral
+
+    elif experience_years <= 5:      # mid candidate
+        if is_mid:    return 1.0
+        if is_junior: return 0.7
+        if is_senior: return 0.5
+        return 0.8
+
+    else:                            # senior candidate
+        if is_senior: return 1.0
+        if is_mid:    return 0.8
+        if is_junior: return 0.5
+        return 0.9
+
+
 async def node_match_jobs(state: JobSearchState) -> JobSearchState:
-    """Score and rank jobs by similarity to resume."""
+    """Score and rank jobs using hybrid scoring:
+    50% semantic similarity + 30% skill overlap + 20% seniority match
+    """
     logger.info("Node: match_jobs")
     try:
-        resume_embedding = state["resume_embedding"]
-        job_embeddings = state["job_embeddings"]
-        jobs = state["job_postings"]
-        top_k = state["top_k"]
+        resume_embedding  = state["resume_embedding"]
+        job_embeddings    = state["job_embeddings"]
+        jobs              = state["job_postings"]
+        top_k             = state["top_k"]
+        resume            = state["resume"]
 
-        # Compute cosine similarity for each job
         scored = []
         for job, job_emb in zip(jobs, job_embeddings):
-            score = cosine_similarity(resume_embedding, job_emb)
-            scored.append((job, score))
 
-        # Sort by score descending and take top_k
+            # Score 1: Semantic similarity (FAISS cosine)
+            semantic_score = cosine_similarity(resume_embedding, job_emb)
+
+            # Score 2: Skill overlap
+            skill_score = calculate_skill_overlap(
+                resume.skills,
+                job.description
+            )
+
+            # Score 3: Seniority match
+            seniority_score = calculate_seniority_score(
+                resume.experience_years or 0,
+                job.description
+            )
+
+            # Hybrid final score
+            final_score = (
+                semantic_score  * 0.5 +
+                skill_score     * 0.3 +
+                seniority_score * 0.2
+            )
+
+            logger.info(
+                f"Job: {job.title[:30]} | "
+                f"semantic={semantic_score:.2f} "
+                f"skill={skill_score:.2f} "
+                f"seniority={seniority_score:.2f} "
+                f"final={final_score:.2f}"
+            )
+
+            scored.append((job, final_score))
+
+        # Sort highest to lowest and take top_k
         scored.sort(key=lambda x: x[1], reverse=True)
         top_jobs = scored[:top_k]
 
-        # Build JobMatch objects (without cover letter yet)
+        # Build JobMatch objects
         matches = []
         for job, score in top_jobs:
             match = JobMatch(
@@ -107,6 +182,7 @@ async def node_match_jobs(state: JobSearchState) -> JobSearchState:
 
         state["matches"] = matches
         logger.info(f"Top {len(matches)} matches found")
+
     except Exception as e:
         logger.error(f"match_jobs failed: {e}")
         state["error"] = str(e)
