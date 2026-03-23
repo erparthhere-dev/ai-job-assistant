@@ -2,6 +2,7 @@ import logging
 import httpx
 from core.config import get_settings
 from models.schemas import JobPosting
+from services.text_utils import clean_job_description
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -42,7 +43,7 @@ async def fetch_jobs(
                 title=item.get("job_title", ""),
                 company=item.get("employer_name", ""),
                 location=f"{item.get('job_city', '')} {item.get('job_country', '')}".strip(),
-                description=item.get("job_description", "")[:3000],  # truncate
+                description=clean_job_description(item.get("job_description", "")),
                 apply_link=item.get("job_apply_link"),
                 posted_at=item.get("job_posted_at_datetime_utc"),
                 employment_type=item.get("job_employment_type"),

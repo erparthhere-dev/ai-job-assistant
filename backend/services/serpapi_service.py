@@ -2,6 +2,7 @@ import logging
 from serpapi import GoogleSearch
 from core.config import get_settings
 from models.schemas import JobPosting
+from services.text_utils import clean_job_description
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -46,7 +47,7 @@ async def fetch_jobs_serpapi(
                     title=          item.get("title", ""),
                     company=        item.get("company_name", ""),
                     location=       item.get("location", ""),
-                    description=    item.get("description", "")[:3000],
+                    description=clean_job_description(item.get("description", "")),
                     apply_link=     item.get("related_links", [{}])[0].get("link") if item.get("related_links") else None,
                     posted_at=      item.get("detected_extensions", {}).get("posted_at"),
                     employment_type=item.get("detected_extensions", {}).get("schedule_type"),
