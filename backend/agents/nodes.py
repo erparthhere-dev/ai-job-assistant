@@ -227,21 +227,35 @@ async def node_match_jobs(state: JobSearchState) -> JobSearchState:
 # ── Node 5: Analyze Matches ───────────────────────────────────────────────────
 
 ANALYSIS_PROMPT = """
-You are a job match analyzer. Given a resume summary and a job posting, return a JSON object with:
+You are an expert technical recruiter analyzing a candidate-job fit.
+Be specific and actionable — reference exact skills, tools, and experience.
+
+Return ONLY valid JSON:
 {{
   "match_reasons": ["reason1", "reason2", "reason3"],
-  "missing_skills": ["skill1", "skill2"]
+  "missing_skills": ["skill1", "skill2"],
+  "match_summary": "one sentence overall assessment"
 }}
 
-- match_reasons: 3 specific reasons why this candidate matches this job
-- missing_skills: skills mentioned in the job description that the candidate lacks
+Rules:
+- match_reasons: exactly 3 reasons, each must mention SPECIFIC skills or tools
+  BAD: "candidate has cybersecurity experience"
+  GOOD: "Burp Suite and Nmap experience directly matches vulnerability assessment requirements"
+- missing_skills: only skills explicitly mentioned in job description that candidate lacks
+  Format each as: "SkillName — why it matters for this role"
+  e.g. "Splunk — required for SIEM monitoring mentioned 3x in JD"
+- match_summary: one honest sentence about overall fit
+  e.g. "Strong junior fit — 80% skill overlap but lacks enterprise SIEM experience"
+- Maximum 5 missing skills — only the most critical ones
 
-Resume:
+Candidate Profile:
 Skills: {skills}
 Job Titles: {job_titles}
+Experience: {experience_years} years
+Seniority: {seniority}
 Summary: {summary}
 
-Job:
+Job Posting:
 Title: {job_title}
 Company: {company}
 Description: {description}
@@ -254,6 +268,15 @@ async def node_analyze_matches(state: JobSearchState) -> JobSearchState:
     client = AsyncOpenAI(api_key=settings.openai_api_key)
     resume = state["resume"]
 
+    # Extract seniority from summary
+    seniority = "junior"
+    if "[JUNIOR" in resume.summary:
+        seniority = "junior"
+    elif "[MID" in resume.summary:
+        seniority = "mid"
+    elif "[SENIOR" in resume.summary:
+        seniority = "senior"
+
     analyzed = []
     for match in state["matches"]:
         try:
@@ -265,10 +288,12 @@ async def node_analyze_matches(state: JobSearchState) -> JobSearchState:
                         "content": ANALYSIS_PROMPT.format(
                             skills=", ".join(resume.skills),
                             job_titles=", ".join(resume.job_titles),
+                            experience_years=resume.experience_years or 0,
+                            seniority=seniority,
                             summary=resume.summary,
                             job_title=match.job.title,
                             company=match.job.company,
-                            description=match.job.description[:1500],
+                            description=match.job.description[:2000],
                         )
                     }
                 ],
@@ -276,8 +301,12 @@ async def node_analyze_matches(state: JobSearchState) -> JobSearchState:
                 temperature=0.2,
             )
             data = json.loads(response.choices[0].message.content)
-            match.match_reasons = data.get("match_reasons", [])
+            match.match_reasons  = data.get("match_reasons", [])
             match.missing_skills = data.get("missing_skills", [])
+
+            # Log the match summary
+            logger.info(f"Match summary for {match.job.title[:30]}: {data.get('match_summary', '')}")
+
         except Exception as e:
             logger.warning(f"Analysis failed for job {match.job.job_id}: {e}")
 
