@@ -109,55 +109,91 @@ async def node_embed_jobs(state: JobSearchState) -> JobSearchState:
 
 # ── Node 4: Match Jobs ────────────────────────────────────────────────────────
 
+def extract_job_skills(job_description: str) -> list[str]:
+    """Extract required skills mentioned in job description."""
+    job_desc_lower = job_description.lower()
+
+    # Common skills to look for in job descriptions
+    known_skills = [
+        # Cybersecurity
+        "burp suite", "nmap", "sqlmap", "wireshark", "metasploit",
+        "kali linux", "penetration testing", "vulnerability assessment",
+        "siem", "splunk", "qradar", "firewall", "ids", "ips",
+        "incident response", "threat intelligence", "ethical hacking",
+        "network security", "information security", "cybersecurity",
+        "log analysis", "forensics", "malware analysis",
+        # Programming
+        "python", "java", "javascript", "c++", "c#", "go", "rust",
+        "html", "css", "sql", "bash", "powershell",
+        # Cloud
+        "aws", "azure", "gcp", "docker", "kubernetes",
+        # OS
+        "linux", "unix", "windows", "macos",
+        # General
+        "git", "rest api", "machine learning", "deep learning",
+        "data analysis", "problem solving", "communication",
+    ]
+
+    found = [skill for skill in known_skills if skill in job_desc_lower]
+    return found
+
+
 def calculate_skill_overlap(resume_skills: list[str], job_description: str) -> float:
     """
-    Calculate skill overlap using fuzzy/partial matching.
-    Handles cases where resume and JD use different words for same skill.
+    Calculate what % of job required skills the candidate has.
+    CORRECT formula: candidate_has / job_requires
     """
-    if not resume_skills:
+    if not resume_skills or not job_description:
         return 0.0
 
-    job_desc_lower = job_description.lower()
-    matched = 0
+    # Step 1: Extract what job requires
+    job_required_skills = extract_job_skills(job_description)
 
-    # Skill aliases — different words meaning the same thing
+    if not job_required_skills:
+        return 0.5   # no specific skills mentioned → neutral score
+
+    # Step 2: Check how many job skills candidate has
+    resume_lower = [s.lower() for s in resume_skills]
+
+    # Skill aliases for fuzzy matching
     skill_aliases = {
-        "vulnerability assessment": ["vulnerability", "vuln assessment", "vulnerability scanning", "vulnerability testing"],
-        "linux environment":        ["linux", "unix", "kali", "ubuntu"],
-        "burp suite":               ["burp", "web application testing", "web testing"],
-        "network security":         ["network", "networking", "network protection"],
-        "penetration testing":      ["penetration", "pentest", "pen test", "ethical hacking"],
-        "siem":                     ["siem", "splunk", "qradar", "security information"],
-        "incident response":        ["incident", "ir ", "security incident"],
-        "firewall management":      ["firewall", "firewall configuration", "network firewall"],
-        "python":                   ["python", "python3", "python scripting"],
-        "problem solving":          ["problem solving", "analytical", "problem-solving"],
-        "information security":     ["information security", "infosec", "info security"],
-        "cybersecurity":            ["cybersecurity", "cyber security", "information security"],
-        "nmap":                     ["nmap", "network scanning", "port scanning"],
-        "sqlmap":                   ["sqlmap", "sql injection", "database security"],
+        "burp suite":           ["burp suite", "burp"],
+        "nmap":                 ["nmap", "network scanning"],
+        "penetration testing":  ["penetration testing", "pentest", "pen test", "ethical hacking"],
+        "vulnerability assessment": ["vulnerability assessment", "vuln assessment"],
+        "siem":                 ["siem", "security information"],
+        "incident response":    ["incident response", "ir"],
+        "network security":     ["network security", "networking"],
+        "linux":                ["linux", "linux environment", "kali", "ubuntu"],
+        "python":               ["python", "python3"],
+        "information security": ["information security", "infosec", "cybersecurity"],
+        "firewall":             ["firewall", "firewall management", "firewall configuration"],
+        "log analysis":         ["log analysis", "siem", "splunk"],
+        "ethical hacking":      ["ethical hacking", "penetration testing", "pentest"],
+        "threat intelligence":  ["threat intelligence", "threat analysis"],
     }
 
-    for skill in resume_skills:
-        skill_lower = skill.lower()
-
-        # Check 1: exact match
-        if skill_lower in job_desc_lower:
+    matched = 0
+    for job_skill in job_required_skills:
+        # Check direct match
+        if job_skill in resume_lower:
             matched += 1
             continue
 
-        # Check 2: partial match (skill is substring of job desc)
-        if any(word in job_desc_lower for word in skill_lower.split()):
-            matched += 0.5   # partial credit
+        # Check aliases
+        aliases = skill_aliases.get(job_skill, [job_skill])
+        if any(alias in " ".join(resume_lower) for alias in aliases):
+            matched += 1
             continue
 
-        # Check 3: alias match
-        aliases = skill_aliases.get(skill_lower, [])
-        if any(alias in job_desc_lower for alias in aliases):
-            matched += 0.8   # alias credit
-            continue
+    score = matched / len(job_required_skills)
 
-    return min(matched / len(resume_skills), 1.0)  # cap at 1.0
+    logger.info(
+        f"Skill overlap: {matched}/{len(job_required_skills)} "
+        f"job skills matched = {score:.2f}"
+    )
+
+    return score
 
 
 def calculate_seniority_score(experience_years: float, job_description: str) -> float:
