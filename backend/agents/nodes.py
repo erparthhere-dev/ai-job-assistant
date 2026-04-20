@@ -8,6 +8,8 @@ from agents.state import JobSearchState
 from core.config import get_settings
 from services.serpapi_service import fetch_jobs_serpapi
 
+from services.security import filter_llm_output
+
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -125,7 +127,7 @@ def extract_job_skills(job_description: str) -> list[str]:
         # Programming
         "python", "java", "javascript", "c++", "c#", "go", "rust",
         "html", "css", "sql", "bash", "powershell",
-        # Cloud
+          # Cloud
         "aws", "azure", "gcp", "docker", "kubernetes",
         # OS
         "linux", "unix", "windows", "macos",
@@ -445,7 +447,12 @@ async def node_generate_cover_letters(state: JobSearchState) -> JobSearchState:
                 ],
                 temperature=0.7,
             )
-            match.cover_letter = response.choices[0].message.content
+            raw_output = response.choices[0].message.content
+            clean_output, warnings = filter_llm_output(raw_output, source="cover letter")
+            if warnings:
+                logger.warning(f"Cover letter filtered: {warnings}")
+            match.cover_letter = clean_output
+            
         except Exception as e:
             logger.warning(f"Cover letter failed for job {match.job.job_id}: {e}")
 

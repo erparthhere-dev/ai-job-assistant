@@ -1,17 +1,24 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from core.config import get_settings
 from models.schemas import ResumeParseResponse, ErrorResponse
 from services.resume_service import parse_resume, get_resume
+from services.security import detect_prompt_injection, validate_job_query, validate_resume_text
 
 from agents.graph import job_search_graph
 from models.schemas import JobSearchRequest, JobSearchResponse
 from services.resume_service import get_resume
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # ── Logging 
 logging.basicConfig(
@@ -20,6 +27,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+limiter = Limiter(key_func=get_remote_address)
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        return response
+    
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        import time
+        start = time.time()
+        response = await call_next(request)
+        duration = round((time.time() - start) * 1000, 2)
+        logger.info(
+            f"[AUDIT] {request.method} {request.url.path} "
+            f"| status={response.status_code} "
+            f"| ip={request.client.host} "
+            f"| duration={duration}ms"
+        )
+        return response
 
 # ── App lifecycle 
 @asynccontextmanager
@@ -38,6 +71,13 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+app.add_middleware(RequestLoggingMiddleware)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -70,11 +110,16 @@ async def upload_resume(
 
     file_bytes = await file.read()
 
+    if len(file_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
     if len(file_bytes) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB.")
 
-    if len(file_bytes) == 0:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    # Security: verify actual PDF magic bytes — not just filename extension
+    if not file_bytes.startswith(b"%PDF"):
+        logger.warning(f"🚨 SECURITY: File '{file.filename}' has .pdf extension but is not a real PDF")
+        raise HTTPException(status_code=400, detail="Invalid file: not a valid PDF (magic bytes check failed).")
 
     try:
         result = await parse_resume(file_bytes, file.filename)
@@ -106,25 +151,34 @@ async def get_resume_by_id(resume_id: str):
     tags=["Jobs"],
     summary="Match resume to jobs and generate cover letters",
 )
-async def search_jobs(request: JobSearchRequest):
+
+@limiter.limit("10/minute")
+
+async def search_jobs(request: Request, body: JobSearchRequest):
     """
     Given a resume ID, fetch matching jobs and generate cover letters.
     """
-    # Get the parsed resume
-    resume = get_resume(request.resume_id)
+    # Security: check job query for prompt injection FIRST
+    if body.query:
+        is_valid, result = validate_job_query(body.query)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Security violation: {result}")
+        body.query = result
+
+    resume = get_resume(body.resume_id)
     if not resume:
         raise HTTPException(
             status_code=404,
-            detail=f"Resume '{request.resume_id}' not found. Please upload your resume first."
+            detail=f"Resume '{body.resume_id}' not found. Please upload your resume first."
         )
 
     # Build initial state
     initial_state: dict = {
         "resume": resume,
-        "query": request.query or " ".join(resume.job_titles) or "software engineer",
-        "location": request.location or "",
-        "remote_only": request.remote_only,
-        "top_k": request.top_k,
+        "query": body.query or " ".join(resume.job_titles) or "software engineer",
+        "location": body.location or "",
+        "remote_only": body.remote_only,
+        "top_k": body.top_k,
         "job_postings": [],
         "resume_embedding": [],
         "job_embeddings": [],
@@ -142,7 +196,7 @@ async def search_jobs(request: JobSearchRequest):
         raise HTTPException(status_code=500, detail=final_state["error"])
 
     return JobSearchResponse(
-        resume_id=request.resume_id,
+        resume_id=body.resume_id,
         total_jobs_fetched=len(final_state["job_postings"]),
         matches=final_state["matches"],
     )

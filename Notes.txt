@@ -1,0 +1,39 @@
+Simlirity scoring:~
+
+semantic match * 0.5
+
+skill overlap  * 0.3
+senority match * 0.2
+
+
+around
+59% match                 ████████░░  Good match
+75% match                 ███████████ Strong match
+85% match                 ████████████ Top Match
+
+
+For geting match percentage above 90percent:-
+
+resume use same language as jd(only possibe if tailored as jd)
+
+applyer must have all skills mentiond in jd in resume
+
+senority shoud be perfectly matched
+
+
+
+
+
+"If our system shows 90% for every job — it means the system is wrong.
+
+Candidate applies to wrong jobs
+Gets rejected
+
+
+
+
+
+Database
+
+Resume data - PostgreSQL
+Resume embeddings - pgvector
